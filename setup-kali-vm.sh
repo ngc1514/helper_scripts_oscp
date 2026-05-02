@@ -167,10 +167,21 @@ virsh list --all | grep "$VM_NAME"
 echo ""
 echo "  Waiting for Kali to get an IP (up to 60s)..."
 
+# Get the VM's MAC address
+VM_MAC=$(virsh domiflist "$VM_NAME" | grep "$BRIDGE_NAME" | awk '{print $5}')
+
 IP_FOUND=""
 for i in $(seq 1 12); do
     sleep 5
-    IP_FOUND=$(virsh domifaddr "$VM_NAME" 2>/dev/null | grep -oP '(\d+\.){3}\d+' || true)
+    # Try multiple methods since bridged networks don't report to libvirt
+    # Method 1: Check ARP cache
+    IP_FOUND=$(ip neigh show | grep -i "$VM_MAC" | grep -oP '(\d+\.){3}\d+' | head -1 || true)
+    
+    # Method 2: Use arp-scan if Method 1 fails
+    if [[ -z "$IP_FOUND" ]]; then
+        IP_FOUND=$(arp-scan --interface="$BRIDGE_NAME" --localnet 2>/dev/null | grep -i "$VM_MAC" | awk '{print $1}' || true)
+    fi
+    
     if [[ -n "$IP_FOUND" ]]; then
         break
     fi
