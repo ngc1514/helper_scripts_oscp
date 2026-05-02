@@ -128,6 +128,26 @@ dpkg -i "./$NOMACHINE_DEB" || apt install -f -y
 echo "   ✅ NoMachine installed and running"
 
 # ──────────────────────────────────────────────────────────
+# 4. Switch Desktop Environment to GNOME
+# ──────────────────────────────────────────────────────────
+echo "🖥️  Switching desktop environment to GNOME..."
+echo ""
+echo "   This will:"
+echo "   1. Update package lists"
+echo "   2. Install kali-desktop-gnome"
+echo "   3. Prompt you to select x-session-manager (choose gdm3)"
+echo "   4. Remove kali-desktop-xfce"
+echo ""
+
+sudo apt update
+sudo apt install -y kali-desktop-gnome
+sudo update-alternatives --config x-session-manager
+sudo apt purge -y --autoremove --allow-remove-essential kali-desktop-xfce
+
+echo ""
+echo "   ✅ Desktop environment switch complete"
+
+# ──────────────────────────────────────────────────────────
 # Summary
 # ──────────────────────────────────────────────────────────
 echo ""
@@ -139,8 +159,9 @@ echo "  Display manager:  $DM_SERVICE"
 echo "  Auto-login:       $AUTO_LOGIN_USER (takes effect next reboot)"
 echo "  SSH:              $(systemctl is-active ssh) on port 22"
 echo "  NoMachine:        installed — connect on port 4000 (NX protocol)"
+echo "  Desktop:          GNOME (switched from XFCE)"
 echo ""
-echo "  Reboot to apply auto-login:"
+echo "  Reboot to apply auto-login and desktop environment:"
 echo "    sudo reboot"
 echo ""
 echo "  Then from your Mac/PC, install NoMachine client and connect"
