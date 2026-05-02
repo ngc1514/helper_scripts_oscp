@@ -32,12 +32,12 @@ Run this script inside the Kali VM after first boot to configure auto-login, SSH
 
 **Run via curl (from inside Kali):**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/kali-post-setup.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/ngc1514/helper_scripts_oscp/refs/heads/main/kali-post-setup.sh | sudo bash
 ```
 
 **Or download and run:**
 ```bash
-wget https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/kali-post-setup.sh
+wget https://raw.githubusercontent.com/ngc1514/helper_scripts_oscp/refs/heads/main/kali-post-setup.sh
 chmod +x kali-post-setup.sh
 sudo ./kali-post-setup.sh
 ```
