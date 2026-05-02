@@ -14,6 +14,9 @@
 
 set -euo pipefail
 
+# Ensure TERM is set for any interactive tools
+export TERM="${TERM:-xterm-256color}"
+
 # ──────────────────────────────────────────────────────────
 # Configuration
 # ──────────────────────────────────────────────────────────
@@ -134,15 +137,33 @@ echo "🖥️  Switching desktop environment to GNOME..."
 echo ""
 echo "   This will:"
 echo "   1. Update package lists"
-echo "   2. Install kali-desktop-gnome"
-echo "   3. Prompt you to select x-session-manager (choose gdm3)"
-echo "   4. Remove kali-desktop-xfce"
+echo "   2. Pre-configure GDM3 as default display manager"
+echo "   3. Install kali-desktop-gnome (non-interactive)"
+echo "   4. Set GNOME as default session manager"
+echo "   5. Remove kali-desktop-xfce"
 echo ""
 
-sudo apt update
-sudo apt install -y kali-desktop-gnome
-sudo update-alternatives --config x-session-manager
-sudo apt purge -y --autoremove --allow-remove-essential kali-desktop-xfce
+# Update package lists
+apt update
+
+# Pre-seed debconf to select GDM3 as the default display manager
+# This prevents the interactive dialog from appearing
+echo "gdm3 shared/default-x-display-manager select gdm3" | debconf-set-selections
+echo "lightdm shared/default-x-display-manager select gdm3" | debconf-set-selections
+
+# Install GNOME desktop non-interactively
+DEBIAN_FRONTEND=noninteractive apt install -y kali-desktop-gnome
+
+# Set GNOME as the default session manager (non-interactive)
+update-alternatives --set x-session-manager /usr/bin/gnome-session
+
+# Ensure GDM3 is set as the display manager and enabled
+systemctl disable lightdm.service 2>/dev/null || true
+systemctl enable gdm3.service
+systemctl set-default graphical.target
+
+# Remove XFCE desktop
+apt purge -y --autoremove --allow-remove-essential kali-desktop-xfce
 
 echo ""
 echo "   ✅ Desktop environment switch complete"
