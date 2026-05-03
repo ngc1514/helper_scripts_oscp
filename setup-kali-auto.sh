@@ -4,7 +4,7 @@
 # Complete end-to-end Kali VM setup for headless operation
 #
 # Usage:
-#   sudo ./setup-kali-auto.sh /path/to/kali.qcow2
+#   sudo ./setup-kali-auto.sh /path/to/kali.qcow2 [--desktop xfce|gnome]
 #
 # What it does:
 #   1. Runs setup-kali-vm.sh to create the VM
@@ -17,10 +17,54 @@
 
 set -euo pipefail
 
-QCOW2_PATH="${1:-}"
 VM_NAME="kali"
 SSH_USER="kali"
 SSH_PASS="kali"
+
+# Desktop environment for the configured VM:
+#   xfce  — stock, fast over NoMachine (default)
+#   gnome — prettier locally, laggier over NoMachine
+DESKTOP="xfce"
+QCOW2_PATH=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --desktop)
+            DESKTOP="${2:-}"
+            shift 2
+            ;;
+        --desktop=*)
+            DESKTOP="${1#--desktop=}"
+            shift
+            ;;
+        -h|--help)
+            sed -n '2,16p' "$0"
+            exit 0
+            ;;
+        -*)
+            echo "❌ Unknown flag: $1"
+            echo "Usage: sudo $0 /path/to/kali.qcow2 [--desktop xfce|gnome]"
+            exit 1
+            ;;
+        *)
+            if [[ -z "$QCOW2_PATH" ]]; then
+                QCOW2_PATH="$1"
+            else
+                echo "❌ Unexpected argument: $1"
+                exit 1
+            fi
+            shift
+            ;;
+    esac
+done
+
+case "$DESKTOP" in
+    xfce|gnome) ;;
+    *)
+        echo "❌ Invalid --desktop value: '$DESKTOP' (expected: xfce, gnome)"
+        exit 1
+        ;;
+esac
 
 # ──────────────────────────────────────────────────────────
 # Preflight
@@ -52,6 +96,7 @@ fi
 
 echo "============================================"
 echo "  Complete Kali VM Setup (Headless)"
+echo "  Desktop target: $DESKTOP"
 echo "============================================"
 echo ""
 
@@ -243,7 +288,7 @@ echo ""
 
 sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -t \
     "$SSH_USER@$KALI_IP" \
-    "chmod +x ~/configure-kali.sh && echo '$SSH_PASS' | sudo -S ~/configure-kali.sh" || true
+    "chmod +x ~/configure-kali.sh && echo '$SSH_PASS' | sudo -S ~/configure-kali.sh --desktop $DESKTOP" || true
 
 echo ""
 echo "   ✅ Post-setup complete"
@@ -291,7 +336,11 @@ echo "                (Download client: https://www.nomachine.com/download)"
 echo ""
 echo "  Default credentials: kali / kali"
 echo ""
-echo "  Desktop:     GNOME with auto-login"
+if [[ "$DESKTOP" == "gnome" ]]; then
+    echo "  Desktop:     GNOME with auto-login (eye candy, slower over NoMachine)"
+else
+    echo "  Desktop:     XFCE with auto-login (stock, snappy over NoMachine)"
+fi
 echo "  Installed:   Brave Browser, Sublime Text"
 echo ""
 echo "  VM Management:"

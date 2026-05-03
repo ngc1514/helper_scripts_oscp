@@ -7,10 +7,12 @@
 #   1. Detects display manager (LightDM/GDM3) and enables auto-login
 #   2. Enables SSH server on boot
 #   3. Installs NoMachine for remote desktop access
+#   4. Optionally swaps XFCE → GNOME (--desktop gnome)
 #
 # Usage:
 #   chmod +x configure-kali.sh
-#   sudo ./configure-kali.sh
+#   sudo ./configure-kali.sh                  # default: keep XFCE (fast over NoMachine)
+#   sudo ./configure-kali.sh --desktop gnome  # swap to GNOME (prettier, laggier)
 
 set -euo pipefail
 
@@ -25,6 +27,43 @@ NOMACHINE_VERSION="9.4.14_1"
 NOMACHINE_DEB="nomachine_${NOMACHINE_VERSION}_amd64.deb"
 NOMACHINE_URL="https://web9001.nomachine.com/download/9.4/Linux/${NOMACHINE_DEB}"
 
+# Default: keep the stock XFCE that ships with Kali. GNOME looks nicer locally
+# but feels sluggish over NoMachine because of compositor + animation overhead.
+DESKTOP="xfce"
+
+# ──────────────────────────────────────────────────────────
+# Argument parsing
+# ──────────────────────────────────────────────────────────
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --desktop)
+            DESKTOP="${2:-}"
+            shift 2
+            ;;
+        --desktop=*)
+            DESKTOP="${1#--desktop=}"
+            shift
+            ;;
+        -h|--help)
+            sed -n '2,16p' "$0"
+            exit 0
+            ;;
+        *)
+            echo "❌ Unknown argument: $1"
+            echo "Usage: sudo $0 [--desktop xfce|gnome]"
+            exit 1
+            ;;
+    esac
+done
+
+case "$DESKTOP" in
+    xfce|gnome) ;;
+    *)
+        echo "❌ Invalid --desktop value: '$DESKTOP' (expected: xfce, gnome)"
+        exit 1
+        ;;
+esac
+
 # ──────────────────────────────────────────────────────────
 # Preflight
 # ──────────────────────────────────────────────────────────
@@ -35,6 +74,7 @@ fi
 
 echo "============================================"
 echo "  Kali Configuration Script"
+echo "  Desktop target: $DESKTOP"
 echo "============================================"
 echo ""
 
@@ -77,7 +117,11 @@ case "$DM_SERVICE" in
         groupadd -f autologin
         usermod -aG autologin "$AUTO_LOGIN_USER"
 
-        echo "   ✅ Auto-login enabled (LightDM — will be reconfigured for GDM3 after GNOME install)"
+        if [[ "$DESKTOP" == "gnome" ]]; then
+            echo "   ✅ Auto-login enabled (LightDM — will be reconfigured for GDM3 after GNOME install)"
+        else
+            echo "   ✅ Auto-login enabled (LightDM/XFCE)"
+        fi
         ;;
 
     gdm3|gdm)
@@ -192,56 +236,60 @@ else
 fi
 
 # ──────────────────────────────────────────────────────────
-# 4. Switch Desktop Environment to GNOME
+# 4. Switch Desktop Environment to GNOME (optional)
 # ──────────────────────────────────────────────────────────
-echo "🖥️  Switching desktop environment to GNOME..."
-echo ""
-echo "   This will:"
-echo "   1. Update package lists"
-echo "   2. Pre-configure GDM3 as default display manager"
-echo "   3. Install kali-desktop-gnome (non-interactive)"
-echo "   4. Set GNOME as default session manager"
-echo "   5. Remove kali-desktop-xfce"
-echo ""
+if [[ "$DESKTOP" == "gnome" ]]; then
+    echo "🖥️  Switching desktop environment to GNOME..."
+    echo ""
+    echo "   This will:"
+    echo "   1. Update package lists"
+    echo "   2. Pre-configure GDM3 as default display manager"
+    echo "   3. Install kali-desktop-gnome (non-interactive)"
+    echo "   4. Set GNOME as default session manager"
+    echo "   5. Remove kali-desktop-xfce"
+    echo ""
 
-# Update package lists
-apt update
+    # Update package lists
+    apt update
 
-# Pre-seed debconf to select GDM3 as the default display manager
-# This prevents the interactive dialog from appearing
-echo "gdm3 shared/default-x-display-manager select gdm3" | debconf-set-selections
-echo "lightdm shared/default-x-display-manager select gdm3" | debconf-set-selections
+    # Pre-seed debconf to select GDM3 as the default display manager
+    # This prevents the interactive dialog from appearing
+    echo "gdm3 shared/default-x-display-manager select gdm3" | debconf-set-selections
+    echo "lightdm shared/default-x-display-manager select gdm3" | debconf-set-selections
 
-# Install GNOME desktop non-interactively
-DEBIAN_FRONTEND=noninteractive apt install -y kali-desktop-gnome
+    # Install GNOME desktop non-interactively
+    DEBIAN_FRONTEND=noninteractive apt install -y kali-desktop-gnome
 
-# Set GNOME as the default session manager (non-interactive)
-update-alternatives --set x-session-manager /usr/bin/gnome-session
+    # Set GNOME as the default session manager (non-interactive)
+    update-alternatives --set x-session-manager /usr/bin/gnome-session
 
-# Ensure GDM3 is set as the display manager and enabled
-systemctl disable lightdm.service 2>/dev/null || true
-systemctl enable gdm3.service
-systemctl set-default graphical.target
+    # Ensure GDM3 is set as the display manager and enabled
+    systemctl disable lightdm.service 2>/dev/null || true
+    systemctl enable gdm3.service
+    systemctl set-default graphical.target
 
-# Configure auto-login for GDM3 now that it's installed
-GDM_CONF="/etc/gdm3/daemon.conf"
-if [[ -f "$GDM_CONF" ]]; then
-    sed -i '/^AutomaticLoginEnable/d' "$GDM_CONF"
-    sed -i '/^AutomaticLogin /d' "$GDM_CONF"
-    sed -i "/^\[daemon\]/a AutomaticLoginEnable = true\nAutomaticLogin = ${AUTO_LOGIN_USER}" "$GDM_CONF"
-    echo "   ✅ Auto-login configured for GDM3"
+    # Configure auto-login for GDM3 now that it's installed
+    GDM_CONF="/etc/gdm3/daemon.conf"
+    if [[ -f "$GDM_CONF" ]]; then
+        sed -i '/^AutomaticLoginEnable/d' "$GDM_CONF"
+        sed -i '/^AutomaticLogin /d' "$GDM_CONF"
+        sed -i "/^\[daemon\]/a AutomaticLoginEnable = true\nAutomaticLogin = ${AUTO_LOGIN_USER}" "$GDM_CONF"
+        echo "   ✅ Auto-login configured for GDM3"
+    else
+        echo "   ⚠️  $GDM_CONF not found — auto-login not configured"
+    fi
+
+    # Remove XFCE desktop
+    apt purge -y --autoremove --allow-remove-essential kali-desktop-xfce
+
+    echo ""
+    echo "   ✅ Desktop environment switch complete"
+
+    # Refresh DM_SERVICE now that GDM3 is active
+    DM_SERVICE=$(basename "$(readlink -f /etc/systemd/system/display-manager.service 2>/dev/null)" .service 2>/dev/null || echo "unknown")
 else
-    echo "   ⚠️  $GDM_CONF not found — auto-login not configured"
+    echo "🖥️  Keeping stock XFCE (faster over NoMachine — skip with --desktop gnome)"
 fi
-
-# Remove XFCE desktop
-apt purge -y --autoremove --allow-remove-essential kali-desktop-xfce
-
-echo ""
-echo "   ✅ Desktop environment switch complete"
-
-# Refresh DM_SERVICE now that GDM3 is active
-DM_SERVICE=$(basename "$(readlink -f /etc/systemd/system/display-manager.service 2>/dev/null)" .service 2>/dev/null || echo "unknown")
 
 # ──────────────────────────────────────────────────────────
 # 5. Install Third-Party Software
@@ -313,7 +361,11 @@ echo "  Display manager:  $DM_SERVICE"
 echo "  Auto-login:       $AUTO_LOGIN_USER (takes effect next reboot)"
 echo "  SSH:              $(systemctl is-active ssh) on port 22"
 echo "  NoMachine:        installed — connect on port 4000 (NX protocol)"
-echo "  Desktop:          GNOME (switched from XFCE)"
+if [[ "$DESKTOP" == "gnome" ]]; then
+    echo "  Desktop:          GNOME (switched from XFCE)"
+else
+    echo "  Desktop:          XFCE (stock — fast over NoMachine)"
+fi
 echo "  Brave Browser:    installed"
 echo "  Sublime Text:     installed"
 echo ""

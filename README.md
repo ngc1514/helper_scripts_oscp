@@ -12,9 +12,12 @@ One command from a fresh Kali qcow2 to a configured, headless-accessible VM:
 # Extract the Kali image
 cd ~/vm && 7z x ~/vm/kali-linux-2025.4-qemu-amd64.7z
 
-# Create the VM and configure it end-to-end
+# Create the VM and configure it end-to-end (default: stock XFCE)
 cd ~/workspace/helper_scripts_oscp
 sudo ./setup-kali-auto.sh ~/vm/kali-linux-2025.4-qemu-amd64.qcow2
+
+# Or, if you want GNOME instead of XFCE (see "Desktop Environment" below)
+sudo ./setup-kali-auto.sh ~/vm/kali-linux-2025.4-qemu-amd64.qcow2 --desktop gnome
 ```
 
 [setup-kali-auto.sh](setup-kali-auto.sh) does the following:
@@ -22,7 +25,7 @@ sudo ./setup-kali-auto.sh ~/vm/kali-linux-2025.4-qemu-amd64.qcow2
 1. **Pre-boots disk customization** with `virt-customize` — sets the `kali` user password to `kali`, enables SSH, and installs `qemu-guest-agent` so SSH and the host↔guest channel are live on first boot.
 2. **Creates the bridged VM** via [create-vm.sh](create-vm.sh) and adds a serial console for fallback access.
 3. **Waits for the VM's IP** (via guest agent / ARP) and SSHes in. If Kali's first-boot init wipes the SSH config, the script automatically shuts the VM down, re-applies `virt-customize`, and retries.
-4. **Runs [configure-kali.sh](configure-kali.sh) inside the VM** — auto-login, SSH on boot, NoMachine, GNOME, third-party apps.
+4. **Runs [configure-kali.sh](configure-kali.sh) inside the VM** — auto-login, SSH on boot, NoMachine, the chosen desktop (XFCE by default, or GNOME with `--desktop gnome`), third-party apps.
 5. **Reboots** and waits for the VM to come back online.
 
 > If your wired interface is **not** `eno1`, see [Configuring Network Interface](#configuring-network-interface) before running.
@@ -34,6 +37,27 @@ sudo ./setup-kali-auto.sh ~/vm/kali-linux-2025.4-qemu-amd64.qcow2
 - `libguestfs-tools` and `sshpass` will be installed automatically if missing
 
 > ⚠️ Bridge creation will briefly drop your wired connection. Have a fallback (WiFi, console).
+
+---
+
+### Desktop Environment: XFCE (default) vs GNOME
+
+Two paths, pick one with `--desktop xfce|gnome` (defaults to `xfce`):
+
+- **`--desktop xfce` (default)** — leaves Kali's stock XFCE in place. LightDM auto-login, no DE swap. **This is the recommended path if your primary access is NoMachine** — XFCE is lightweight, doesn't lean on a compositor, and feels noticeably snappier across the wire.
+- **`--desktop gnome`** — installs `kali-desktop-gnome`, switches to GDM3 with auto-login, and removes XFCE. Prettier locally, but GNOME's animations + compositing make NoMachine sessions visibly laggy. Use this if you mostly access the VM directly (virt-manager/SPICE) and want the eye candy.
+
+The flag is wired through both [setup-kali-auto.sh](setup-kali-auto.sh) and [configure-kali.sh](configure-kali.sh):
+
+```bash
+# Full automated setup with GNOME instead of XFCE
+sudo ./setup-kali-auto.sh ~/vm/kali.qcow2 --desktop gnome
+
+# Re-running configure-kali.sh inside an existing VM
+sudo ./configure-kali.sh --desktop gnome
+```
+
+You can switch later by re-running `configure-kali.sh` with the other value — going XFCE → GNOME is what the GNOME branch already does; going GNOME → XFCE isn't automated (you'd have to `apt install kali-desktop-xfce && apt purge kali-desktop-gnome` yourself).
 
 ---
 
@@ -72,10 +96,10 @@ Find your interface with `ip link show`. Common names: `eth0`, `enp0s3`, `enp3s0
 #### 2. Configure Kali
 
 [configure-kali.sh](configure-kali.sh) handles:
-- Display manager auto-login (writes `lightdm.conf` *and* `gdm3/daemon.conf`, since the GNOME switch replaces LightDM with GDM3)
+- Display manager auto-login (writes `lightdm.conf`, and also `gdm3/daemon.conf` if the GNOME switch is requested)
 - SSH server on boot
 - NoMachine install (skipped if already present)
-- Switch from XFCE to GNOME
+- Optional desktop swap to GNOME via `--desktop gnome` (default keeps stock XFCE — see [Desktop Environment](#desktop-environment-xfce-default-vs-gnome))
 - Third-party software (Brave, Sublime — configurable, see below)
 
 Pick one of the following:
@@ -84,8 +108,9 @@ Pick one of the following:
 
 ```bash
 chmod +x configure-vm-remote.sh
-./configure-vm-remote.sh                # auto-detects Kali IP
-./configure-vm-remote.sh 10.0.0.123     # or specify it
+./configure-vm-remote.sh                            # auto-detect IP, default XFCE
+./configure-vm-remote.sh 10.0.0.123                 # specify IP
+./configure-vm-remote.sh 10.0.0.123 --desktop gnome # specify IP + GNOME swap
 ```
 
 [configure-vm-remote.sh](configure-vm-remote.sh) auto-detects the VM's IP, waits for SSH, scps `configure-kali.sh` over, and runs it.
@@ -98,7 +123,10 @@ sudo virsh domifaddr kali --source agent      # works now that qemu-guest-agent 
 # fallback: sudo arp-scan --interface=br0 --localnet
 
 ssh kali@<kali-ip>                            # default password: kali
+# default XFCE:
 curl -fsSL https://raw.githubusercontent.com/ngc1514/helper_scripts_oscp/refs/heads/main/configure-kali.sh | sudo bash
+# or, GNOME swap — pipe via `bash -s --` so flags reach the script:
+curl -fsSL https://raw.githubusercontent.com/ngc1514/helper_scripts_oscp/refs/heads/main/configure-kali.sh | sudo bash -s -- --desktop gnome
 ```
 
 **Option C — From inside Kali (GUI/SPICE):**
@@ -106,7 +134,8 @@ curl -fsSL https://raw.githubusercontent.com/ngc1514/helper_scripts_oscp/refs/he
 ```bash
 wget https://raw.githubusercontent.com/ngc1514/helper_scripts_oscp/refs/heads/main/configure-kali.sh
 chmod +x configure-kali.sh
-sudo ./configure-kali.sh
+sudo ./configure-kali.sh                  # default XFCE
+sudo ./configure-kali.sh --desktop gnome  # GNOME swap
 ```
 
 After it finishes:
@@ -168,7 +197,7 @@ Every other script is self-contained:
 - **Just want the VM, no Kali config** → `sudo ./create-vm.sh kali.qcow2`. Log in via SPICE/virt-manager afterward, or run `fix-kali-access.sh` to enable SSH.
 - **VM already exists, just need to configure Kali** → `./configure-vm-remote.sh` from the host, or run `configure-kali.sh` directly inside the VM.
 - **Locked out of an existing VM** → `sudo ./fix-kali-access.sh` resets credentials and re-enables SSH without rebuilding.
-- **Re-running configuration** (e.g. you skipped GNOME the first time) → `./configure-vm-remote.sh <ip>`.
+- **Re-running configuration** (e.g. you went XFCE first and now want GNOME) → `./configure-vm-remote.sh <ip> --desktop gnome`.
 
 The thing `setup-kali-auto.sh` gives you that the pieces don't is the automatic chain — especially the inline first-boot regression recovery, which would otherwise require you to notice SSH failed and run `fix-kali-access.sh` manually.
 

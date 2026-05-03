@@ -4,9 +4,10 @@
 # Injects configure-kali.sh into a running Kali VM and executes it via SSH
 #
 # Usage:
-#   ./configure-vm-remote.sh [kali-ip]
+#   ./configure-vm-remote.sh [kali-ip] [--desktop xfce|gnome]
 #
-# If no IP is provided, attempts to auto-detect from virsh/arp-scan
+# If no IP is provided, attempts to auto-detect from virsh/arp-scan.
+# --desktop is forwarded to configure-kali.sh (defaults to xfce).
 
 set -euo pipefail
 
@@ -15,10 +16,46 @@ SCRIPT_NAME="configure-kali.sh"
 SSH_USER="kali"
 SSH_PASS="kali"
 
-# ──────────────────────────────────────────────────────────
-# Auto-detect Kali IP if not provided
-# ──────────────────────────────────────────────────────────
-KALI_IP="${1:-}"
+DESKTOP="xfce"
+KALI_IP=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --desktop)
+            DESKTOP="${2:-}"
+            shift 2
+            ;;
+        --desktop=*)
+            DESKTOP="${1#--desktop=}"
+            shift
+            ;;
+        -h|--help)
+            sed -n '2,11p' "$0"
+            exit 0
+            ;;
+        -*)
+            echo "❌ Unknown flag: $1"
+            exit 1
+            ;;
+        *)
+            if [[ -z "$KALI_IP" ]]; then
+                KALI_IP="$1"
+            else
+                echo "❌ Unexpected argument: $1"
+                exit 1
+            fi
+            shift
+            ;;
+    esac
+done
+
+case "$DESKTOP" in
+    xfce|gnome) ;;
+    *)
+        echo "❌ Invalid --desktop value: '$DESKTOP' (expected: xfce, gnome)"
+        exit 1
+        ;;
+esac
 
 if [[ -z "$KALI_IP" ]]; then
     echo "🔍 Auto-detecting Kali VM IP..."
@@ -107,7 +144,7 @@ echo ""
 
 sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no -t \
     "$SSH_USER@$KALI_IP" \
-    "chmod +x ~/$SCRIPT_NAME && echo '$SSH_PASS' | sudo -S ~/$SCRIPT_NAME"
+    "chmod +x ~/$SCRIPT_NAME && echo '$SSH_PASS' | sudo -S ~/$SCRIPT_NAME --desktop $DESKTOP"
 
 # ──────────────────────────────────────────────────────────
 # Summary
