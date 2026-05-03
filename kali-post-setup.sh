@@ -114,21 +114,36 @@ echo "   ✅ SSH enabled and started"
 # ──────────────────────────────────────────────────────────
 # 3. Install NoMachine
 # ──────────────────────────────────────────────────────────
-echo "🖥️  Installing NoMachine ${NOMACHINE_VERSION}..."
+echo "🖥️  Checking NoMachine installation..."
 
-cd /tmp
-
-if [[ ! -f "$NOMACHINE_DEB" ]]; then
-    wget -q --show-progress "$NOMACHINE_URL" -O "$NOMACHINE_DEB"
+# Check if NoMachine is already installed
+if dpkg -l | grep -q "^ii.*nomachine" && [[ -x /usr/NX/bin/nxserver ]]; then
+    echo "   ℹ️  NoMachine is already installed"
+    
+    # Verify it's running
+    if /usr/NX/bin/nxserver --status &>/dev/null; then
+        echo "   ✅ NoMachine is running"
+    else
+        echo "   ⚠️  NoMachine is installed but not running — attempting to start..."
+        /usr/NX/bin/nxserver --start || true
+    fi
+else
+    echo "   📥 Installing NoMachine ${NOMACHINE_VERSION}..."
+    
+    cd /tmp
+    
+    if [[ ! -f "$NOMACHINE_DEB" ]]; then
+        wget -q --show-progress "$NOMACHINE_URL" -O "$NOMACHINE_DEB"
+    fi
+    
+    dpkg -i "./$NOMACHINE_DEB" || apt install -f -y
+    
+    # NoMachine installs its own service (nxserver) automatically.
+    # Verify it's running.
+    /usr/NX/bin/nxserver --status
+    
+    echo "   ✅ NoMachine installed and running"
 fi
-
-dpkg -i "./$NOMACHINE_DEB" || apt install -f -y
-
-# NoMachine installs its own service (nxserver) automatically.
-# Verify it's running.
-/usr/NX/bin/nxserver --status
-
-echo "   ✅ NoMachine installed and running"
 
 # ──────────────────────────────────────────────────────────
 # 4. Switch Desktop Environment to GNOME
