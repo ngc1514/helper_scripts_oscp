@@ -56,9 +56,34 @@ echo "============================================"
 echo ""
 
 # ──────────────────────────────────────────────────────────
-# Step 1: Create the VM
+# Step 1: Prepare the disk image
 # ──────────────────────────────────────────────────────────
-echo "📦 Step 1/4: Creating VM..."
+echo "📦 Step 1/5: Preparing disk image..."
+echo ""
+
+# Check if libguestfs-tools is installed
+if ! command -v virt-customize &>/dev/null; then
+    echo "   📦 Installing libguestfs-tools..."
+    apt install -y -qq libguestfs-tools
+fi
+
+# Customize the disk before creating VM
+echo "   🔧 Setting up SSH and password..."
+virt-customize -a "$QCOW2_PATH" \
+    --password "kali:password:kali" \
+    --run-command "systemctl enable ssh" \
+    --install qemu-guest-agent \
+    --run-command "systemctl enable qemu-guest-agent" \
+    --selinux-relabel 2>&1 | grep -v "^libguestfs: trace:" || true
+
+echo ""
+echo "   ✅ Disk preparation complete"
+echo ""
+
+# ──────────────────────────────────────────────────────────
+# Step 2: Create the VM
+# ──────────────────────────────────────────────────────────
+echo "📦 Step 2/5: Creating VM..."
 echo ""
 
 bash create-vm.sh "$QCOW2_PATH"
@@ -67,10 +92,17 @@ echo ""
 echo "   ✅ VM created successfully"
 echo ""
 
+# Add serial console for better access
+echo "   🖥️  Adding serial console..."
+if ! virsh dumpxml "$VM_NAME" | grep -q '<console type='; then
+    virt-xml "$VM_NAME" --add-device --console pty,target.type=serial 2>/dev/null || true
+fi
+echo ""
+
 # ──────────────────────────────────────────────────────────
-# Step 2: Wait for VM to boot and get IP
+# Step 3: Wait for VM to boot and get IP
 # ──────────────────────────────────────────────────────────
-echo "⏳ Step 2/4: Waiting for VM to boot and acquire IP..."
+echo "⏳ Step 3/5: Waiting for VM to boot and acquire IP..."
 
 VM_MAC=$(virsh domiflist "$VM_NAME" | grep br0 | awk '{print $5}')
 KALI_IP=""
@@ -83,6 +115,11 @@ for i in $(seq 1 24); do
     
     if [[ -z "$KALI_IP" ]]; then
         KALI_IP=$(arp-scan --interface=br0 --localnet 2>/dev/null | grep -i "$VM_MAC" | awk '{print $1}' || true)
+    fi
+    
+    # Also try virsh with agent (qemu-guest-agent should be running)
+    if [[ -z "$KALI_IP" ]]; then
+        KALI_IP=$(virsh domifaddr "$VM_NAME" --source agent 2>/dev/null | grep -oP '(\d+\.){3}\d+' | head -1 || true)
     fi
     
     if [[ -n "$KALI_IP" ]]; then
@@ -98,10 +135,10 @@ for i in $(seq 1 24); do
 done
 
 # ──────────────────────────────────────────────────────────
-# Step 3: Wait for SSH and inject post-setup script
+# Step 4: Wait for SSH and inject post-setup script
 # ──────────────────────────────────────────────────────────
 echo ""
-echo "🔑 Step 3/4: Waiting for SSH and running post-setup..."
+echo "🔑 Step 4/5: Waiting for SSH and running post-setup..."
 echo ""
 
 # Install sshpass if needed
@@ -113,14 +150,19 @@ fi
 # Wait for SSH
 echo "   ⏳ Waiting for SSH to be available..."
 for i in $(seq 1 30); do
-    if sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=2 \
-        "$SSH_USER@$KALI_IP" "echo 'SSH ready'" &>/dev/null 2>&1; then
+    if sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=3 \
+        -o UserKnownHostsFile=/dev/null "$SSH_USER@$KALI_IP" "echo 'SSH ready'" &>/dev/null 2>&1; then
         echo "   ✅ SSH is ready"
         break
     fi
     
     if [[ $i -eq 30 ]]; then
         echo "❌ SSH not available after 60 seconds"
+        echo ""
+        echo "Troubleshooting:"
+        echo "  1. Try: ssh kali@${KALI_IP}"
+        echo "  2. Try: sudo virsh console $VM_NAME"
+        echo "  3. Check: sudo virsh domifaddr $VM_NAME"
         exit 1
     fi
     
@@ -129,13 +171,13 @@ done
 
 # Copy and execute post-setup script
 echo "   📤 Copying configuration script to VM..."
-sshpass -p "$SSH_PASS" scp -o StrictHostKeyChecking=no \
+sshpass -p "$SSH_PASS" scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
     configure-kali.sh "$SSH_USER@$KALI_IP:~/"
 
 echo "   🚀 Executing configuration script (this may take 5-10 minutes)..."
 echo ""
 
-sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no -t \
+sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -t \
     "$SSH_USER@$KALI_IP" \
     "chmod +x ~/configure-kali.sh && echo '$SSH_PASS' | sudo -S ~/configure-kali.sh" || true
 
@@ -143,12 +185,12 @@ echo ""
 echo "   ✅ Post-setup complete"
 
 # ──────────────────────────────────────────────────────────
-# Step 4: Reboot VM
+# Step 5: Reboot VM
 # ──────────────────────────────────────────────────────────
 echo ""
-echo "🔄 Step 4/4: Rebooting VM to apply changes..."
+echo "🔄 Step 5/5: Rebooting VM to apply changes..."
 
-sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no \
+sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
     "$SSH_USER@$KALI_IP" "echo '$SSH_PASS' | sudo -S reboot" || true
 
 echo "   ✅ Reboot initiated"
@@ -159,8 +201,8 @@ sleep 5
 # Wait for VM to come back up
 echo "   ⏳ Waiting for VM to come back online..."
 for i in $(seq 1 30); do
-    if sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=2 \
-        "$SSH_USER@$KALI_IP" "echo 'VM ready'" &>/dev/null 2>&1; then
+    if sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=3 \
+        -o UserKnownHostsFile=/dev/null "$SSH_USER@$KALI_IP" "echo 'VM ready'" &>/dev/null 2>&1; then
         echo "   ✅ VM is back online"
         break
     fi
@@ -179,6 +221,7 @@ echo "  Kali VM is ready at: $KALI_IP"
 echo ""
 echo "  Access methods:"
 echo "    SSH:        ssh kali@${KALI_IP}"
+echo "    Console:    sudo virsh console $VM_NAME (Ctrl+] to exit)"
 echo "    NoMachine:  Connect to ${KALI_IP}:4000"
 echo "                (Download client: https://www.nomachine.com/download)"
 echo ""
