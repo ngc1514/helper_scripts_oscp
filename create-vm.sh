@@ -161,6 +161,7 @@ virt-install \
     --graphics spice,listen=0.0.0.0 \
     --video model.type=qxl \
     --channel spicevmc,target.type=virtio,target.name=com.redhat.spice.0 \
+    --channel unix,target.type=virtio,target.name=org.qemu.guest_agent.0 \
     --noautoconsole
 
 echo "   ✅ VM created and running"
