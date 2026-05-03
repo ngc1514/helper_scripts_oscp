@@ -26,6 +26,15 @@ cd ~/vm && 7z x ~/vm/kali-linux-2025.4-qemu-amd64.7z && sudo bash ~/workspace/he
 
 ⚠️ **WARNING:** This will briefly drop your wired network connection while the bridge is created. Have a fallback (WiFi, console).
 
+**Headless Operation:**
+
+The script automatically configures NetworkManager for headless operation, allowing your Ubuntu host to start networking and VMs without requiring user login. This means you can:
+- Power on your Ubuntu PC
+- Grab your Mac from another room
+- SSH/RDP directly to your Kali VM
+
+The script removes user-specific permissions from network connections and enables autoconnect, so everything starts at boot.
+
 ### 2. Post-Setup Inside Kali VM
 
 Run this script inside the Kali VM after first boot to configure auto-login, SSH, and NoMachine.

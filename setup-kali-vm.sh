@@ -121,6 +121,23 @@ YAML
 fi
 
 # ──────────────────────────────────────────────────────────
+# Step 2.5: Configure NetworkManager for headless operation
+# ──────────────────────────────────────────────────────────
+echo "🔧 Configuring NetworkManager for headless operation..."
+
+# Remove user-specific permissions and enable autoconnect for bridge and physical interface
+# This allows connections to start at boot without requiring user login
+for conn in "netplan-${BRIDGE_NAME}" "netplan-${PHYS_IFACE}"; do
+    if nmcli connection show "$conn" &>/dev/null; then
+        nmcli connection modify "$conn" connection.permissions "" 2>/dev/null || true
+        nmcli connection modify "$conn" connection.autoconnect yes 2>/dev/null || true
+        echo "   ✅ Configured $conn for autoconnect"
+    fi
+done
+
+echo "   ✅ Headless networking configured"
+
+# ──────────────────────────────────────────────────────────
 # Step 3: Allow QEMU to use the bridge
 # ──────────────────────────────────────────────────────────
 mkdir -p /etc/qemu
