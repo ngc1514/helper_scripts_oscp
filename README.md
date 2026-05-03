@@ -26,6 +26,23 @@ cd ~/vm && 7z x ~/vm/kali-linux-2025.4-qemu-amd64.7z && sudo bash ~/workspace/he
 
 ⚠️ **WARNING:** This will briefly drop your wired network connection while the bridge is created. Have a fallback (WiFi, console).
 
+#### Configuring Network Interface
+
+If your wired network interface is **not** named `eno1`, you need to configure it before running the script:
+
+1. Find your interface name:
+```bash
+ip link show
+```
+
+2. Edit `setup-kali-vm.sh` and update these variables at the top:
+```bash
+BRIDGE_NAME="br0"      # Bridge name (usually keep as br0)
+PHYS_IFACE="eno1"      # Change this to your wired NIC name
+```
+
+Common interface names: `eth0`, `enp0s3`, `enp3s0`, `eno1`, `ens33`
+
 **Headless Operation:**
 
 The script automatically configures NetworkManager for headless operation, allowing your Ubuntu host to start networking and VMs without requiring user login. This means you can:
@@ -56,6 +73,7 @@ sudo ./kali-post-setup.sh
 - Enables SSH server on boot
 - Installs NoMachine for remote desktop access
 - Switches desktop environment from XFCE to GNOME
+- Installs third-party software (Brave Browser, Sublime Text, etc.)
 
 **After running:**
 ```bash
@@ -65,6 +83,62 @@ sudo reboot
 Then connect via:
 - **SSH:** `ssh kali@<kali-ip>`
 - **NoMachine:** Install NoMachine client and connect to `<kali-ip>:4000`
+
+#### Configuring Third-Party Software
+
+The script includes a modular system for installing additional software. By default, it installs:
+- **Brave Browser**
+- **Sublime Text**
+
+**To customize what gets installed:**
+
+1. Open `kali-post-setup.sh` and find section 5
+2. Add or remove software from the `THIRD_PARTY_SOFTWARE` array:
+
+```bash
+THIRD_PARTY_SOFTWARE=(
+    "install_brave"
+    "install_sublime"
+    # Add more here
+)
+```
+
+**To add new software:**
+
+1. Create a new installation function following this pattern:
+
+```bash
+install_vscode() {
+    echo "   💻 Installing VS Code..."
+    # Add installation commands here
+    wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > /etc/apt/trusted.gpg.d/packages.microsoft.gpg
+    echo "deb [arch=amd64] https://packages.microsoft.com/repos/code stable main" > /etc/apt/sources.list.d/vscode.list
+    apt update -qq
+    apt install -y code
+    echo "      ✅ VS Code installed"
+}
+```
+
+2. Add the function name to the `THIRD_PARTY_SOFTWARE` array:
+
+```bash
+THIRD_PARTY_SOFTWARE=(
+    "install_brave"
+    "install_sublime"
+    "install_vscode"  # Your new software
+)
+```
+
+**To skip all third-party software installations:**
+
+Simply comment out or empty the array:
+
+```bash
+THIRD_PARTY_SOFTWARE=(
+    # "install_brave"
+    # "install_sublime"
+)
+```
 
 ## Other Utilities
 

@@ -114,21 +114,36 @@ echo "   ✅ SSH enabled and started"
 # ──────────────────────────────────────────────────────────
 # 3. Install NoMachine
 # ──────────────────────────────────────────────────────────
-echo "🖥️  Installing NoMachine ${NOMACHINE_VERSION}..."
+echo "🖥️  Checking NoMachine installation..."
 
-cd /tmp
-
-if [[ ! -f "$NOMACHINE_DEB" ]]; then
-    wget -q --show-progress "$NOMACHINE_URL" -O "$NOMACHINE_DEB"
+# Check if NoMachine is already installed
+if dpkg -l | grep -q "^ii.*nomachine" && [[ -x /usr/NX/bin/nxserver ]]; then
+    echo "   ℹ️  NoMachine is already installed"
+    
+    # Verify it's running
+    if /usr/NX/bin/nxserver --status &>/dev/null; then
+        echo "   ✅ NoMachine is running"
+    else
+        echo "   ⚠️  NoMachine is installed but not running — attempting to start..."
+        /usr/NX/bin/nxserver --start || true
+    fi
+else
+    echo "   📥 Installing NoMachine ${NOMACHINE_VERSION}..."
+    
+    cd /tmp
+    
+    if [[ ! -f "$NOMACHINE_DEB" ]]; then
+        wget -q --show-progress "$NOMACHINE_URL" -O "$NOMACHINE_DEB"
+    fi
+    
+    dpkg -i "./$NOMACHINE_DEB" || apt install -f -y
+    
+    # NoMachine installs its own service (nxserver) automatically.
+    # Verify it's running.
+    /usr/NX/bin/nxserver --status
+    
+    echo "   ✅ NoMachine installed and running"
 fi
-
-dpkg -i "./$NOMACHINE_DEB" || apt install -f -y
-
-# NoMachine installs its own service (nxserver) automatically.
-# Verify it's running.
-/usr/NX/bin/nxserver --status
-
-echo "   ✅ NoMachine installed and running"
 
 # ──────────────────────────────────────────────────────────
 # 4. Switch Desktop Environment to GNOME
@@ -169,6 +184,64 @@ echo ""
 echo "   ✅ Desktop environment switch complete"
 
 # ──────────────────────────────────────────────────────────
+# 5. Install Third-Party Software
+# ──────────────────────────────────────────────────────────
+echo "📦 Installing third-party software..."
+echo ""
+
+# Define software installation functions
+# Add new software by creating a new function following this pattern
+
+install_brave() {
+    echo "   🦁 Installing Brave Browser..."
+    curl -fsS https://dl.brave.com/install.sh | sh
+    echo "      ✅ Brave Browser installed"
+}
+
+install_sublime() {
+    echo "   📝 Installing Sublime Text..."
+    
+    # Install GPG key
+    wget -qO - https://download.sublimetext.com/sublimehq-pub.gpg | gpg --dearmor | \
+        tee /etc/apt/trusted.gpg.d/sublimehq-archive.gpg > /dev/null
+    
+    # Add repository
+    echo "deb https://download.sublimetext.com/ apt/stable/" | \
+        tee /etc/apt/sources.list.d/sublime-text.list
+    
+    # Update and install
+    apt update -qq
+    apt install -y sublime-text
+    
+    echo "      ✅ Sublime Text installed"
+}
+
+# ──────────────────────────────────────────────────────────
+# Configure which software to install
+# Add or remove function names from this array
+# ──────────────────────────────────────────────────────────
+THIRD_PARTY_SOFTWARE=(
+    "install_brave"
+    "install_sublime"
+    # Add more software installation functions here
+    # Example: "install_vscode"
+)
+
+# ──────────────────────────────────────────────────────────
+# Execute installations
+# ──────────────────────────────────────────────────────────
+for software_func in "${THIRD_PARTY_SOFTWARE[@]}"; do
+    if declare -f "$software_func" > /dev/null; then
+        $software_func
+    else
+        echo "   ⚠️  Function '$software_func' not found — skipping"
+    fi
+done
+
+echo ""
+echo "   ✅ Third-party software installation complete"
+
+# ──────────────────────────────────────────────────────────
 # Summary
 # ──────────────────────────────────────────────────────────
 echo ""
@@ -181,6 +254,8 @@ echo "  Auto-login:       $AUTO_LOGIN_USER (takes effect next reboot)"
 echo "  SSH:              $(systemctl is-active ssh) on port 22"
 echo "  NoMachine:        installed — connect on port 4000 (NX protocol)"
 echo "  Desktop:          GNOME (switched from XFCE)"
+echo "  Brave Browser:    installed"
+echo "  Sublime Text:     installed"
 echo ""
 echo "  Reboot to apply auto-login and desktop environment:"
 echo "    sudo reboot"
