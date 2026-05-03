@@ -4,13 +4,40 @@ Helper scripts for OSCP lab setup and utilities.
 
 ## Kali VM Setup
 
-### 1. Setup Kali VM on Ubuntu Host
+### Quick Start: Complete Automated Setup (Headless)
+
+For a fully automated setup that creates the VM and configures everything without GUI access:
+
+```bash
+# Extract the Kali image
+cd ~/vm && 7z x ~/vm/kali-linux-2025.4-qemu-amd64.7z
+
+# Run complete setup (creates VM + runs configuration automatically)
+cd ~/workspace/helper_scripts_oscp
+sudo ./setup-kali-auto.sh ~/vm/kali-linux-2025.4-qemu-amd64.qcow2
+```
+
+This single command will:
+1. Create the bridged VM
+2. Wait for it to boot
+3. SSH in and run all configuration tasks
+4. Reboot and give you a fully configured system
+
+**Skip to "Configuring Network Interface" below if your wired interface is not `eno1`.**
+
+---
+
+### Manual Setup (Step-by-Step)
+
+If you prefer more control, follow these individual steps:
+
+#### 1. Create Kali VM on Ubuntu Host
 
 This script sets up a bridged QEMU/KVM Kali Linux VM with autostart on an Ubuntu host.
 
 **One-liner to extract and setup:**
 ```bash
-cd ~/vm && 7z x ~/vm/kali-linux-2025.4-qemu-amd64.7z && sudo bash ~/workspace/helper_scripts_oscp/setup-kali-vm.sh ~/vm/kali-linux-2025.4-qemu-amd64.qcow2
+cd ~/vm && 7z x ~/vm/kali-linux-2025.4-qemu-amd64.7z && sudo bash ~/workspace/helper_scripts_oscp/create-vm.sh ~/vm/kali-linux-2025.4-qemu-amd64.qcow2
 ```
 
 **What it does:**
@@ -35,7 +62,7 @@ If your wired network interface is **not** named `eno1`, you need to configure i
 ip link show
 ```
 
-2. Edit `setup-kali-vm.sh` and update these variables at the top:
+2. Edit `create-vm.sh` and update these variables at the top:
 ```bash
 BRIDGE_NAME="br0"      # Bridge name (usually keep as br0)
 PHYS_IFACE="eno1"      # Change this to your wired NIC name
@@ -52,20 +79,57 @@ The script automatically configures NetworkManager for headless operation, allow
 
 The script removes user-specific permissions from network connections and enables autoconnect, so everything starts at boot.
 
-### 2. Post-Setup Inside Kali VM
+---
+
+#### 2. Configure Kali VM
 
 Run this script inside the Kali VM after first boot to configure auto-login, SSH, and NoMachine.
 
-**Run via curl (from inside Kali):**
+#### Option A: Headless Setup (Recommended)
+
+If your Ubuntu host is running headless, use the remote configuration script to automatically SSH into the VM and run the configuration:
+
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ngc1514/helper_scripts_oscp/refs/heads/main/kali-post-setup.sh | sudo bash
+# From your Ubuntu host
+chmod +x configure-vm-remote.sh
+./configure-vm-remote.sh
+
+# Or specify the Kali IP manually
+./configure-vm-remote.sh 10.0.0.123
 ```
 
-**Or download and run:**
+The script will:
+- Auto-detect the Kali VM IP (or use the one you provide)
+- Wait for SSH to be available
+- Copy `configure-kali.sh` to the VM
+- Execute it automatically
+
+#### Option B: Direct SSH Access
+
+If you prefer manual control:
+
 ```bash
-wget https://raw.githubusercontent.com/ngc1514/helper_scripts_oscp/refs/heads/main/kali-post-setup.sh
-chmod +x kali-post-setup.sh
-sudo ./kali-post-setup.sh
+# From your Ubuntu host, find the Kali IP
+sudo virsh domifaddr kali
+# or
+sudo arp-scan --interface=br0 --localnet
+
+# SSH into Kali (default: kali/kali)
+ssh kali@<kali-ip>
+
+# Download and run the configuration script
+curl -fsSL https://raw.githubusercontent.com/ngc1514/helper_scripts_oscp/refs/heads/main/configure-kali.sh | sudo bash
+```
+
+#### Option C: Run from Inside Kali (GUI Access)
+
+If you have GUI access via SPICE (virt-manager):
+
+```bash
+# Inside Kali terminal
+wget https://raw.githubusercontent.com/ngc1514/helper_scripts_oscp/refs/heads/main/configure-kali.sh
+chmod +x configure-kali.sh
+sudo ./configure-kali.sh
 ```
 
 **What it does:**
@@ -92,7 +156,7 @@ The script includes a modular system for installing additional software. By defa
 
 **To customize what gets installed:**
 
-1. Open `kali-post-setup.sh` and find section 5
+1. Open `configure-kali.sh` and find section 5
 2. Add or remove software from the `THIRD_PARTY_SOFTWARE` array:
 
 ```bash

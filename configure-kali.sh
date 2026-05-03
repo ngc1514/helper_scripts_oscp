@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# kali-post-setup.sh
+# configure-kali.sh
 # Run inside Kali after first boot.
 #
 # What it does:
@@ -9,8 +9,8 @@
 #   3. Installs NoMachine for remote desktop access
 #
 # Usage:
-#   chmod +x kali-post-setup.sh
-#   sudo ./kali-post-setup.sh
+#   chmod +x configure-kali.sh
+#   sudo ./configure-kali.sh
 
 set -euo pipefail
 
@@ -34,7 +34,7 @@ if [[ $EUID -ne 0 ]]; then
 fi
 
 echo "============================================"
-echo "  Kali Post-Install Setup"
+echo "  Kali Configuration Script"
 echo "============================================"
 echo ""
 
@@ -292,7 +292,7 @@ echo "   ✅ Third-party software installation complete"
 # ──────────────────────────────────────────────────────────
 echo ""
 echo "============================================"
-echo "  ✅ All done!"
+echo "  ✅ Configuration complete!"
 echo "============================================"
 echo ""
 echo "  Display manager:  $DM_SERVICE"
