@@ -77,7 +77,7 @@ case "$DM_SERVICE" in
         groupadd -f autologin
         usermod -aG autologin "$AUTO_LOGIN_USER"
 
-        echo "   ✅ Auto-login enabled (LightDM → XFCE)"
+        echo "   ✅ Auto-login enabled (LightDM — will be reconfigured for GDM3 after GNOME install)"
         ;;
 
     gdm3|gdm)
@@ -223,11 +223,25 @@ systemctl disable lightdm.service 2>/dev/null || true
 systemctl enable gdm3.service
 systemctl set-default graphical.target
 
+# Configure auto-login for GDM3 now that it's installed
+GDM_CONF="/etc/gdm3/daemon.conf"
+if [[ -f "$GDM_CONF" ]]; then
+    sed -i '/^AutomaticLoginEnable/d' "$GDM_CONF"
+    sed -i '/^AutomaticLogin /d' "$GDM_CONF"
+    sed -i "/^\[daemon\]/a AutomaticLoginEnable = true\nAutomaticLogin = ${AUTO_LOGIN_USER}" "$GDM_CONF"
+    echo "   ✅ Auto-login configured for GDM3"
+else
+    echo "   ⚠️  $GDM_CONF not found — auto-login not configured"
+fi
+
 # Remove XFCE desktop
 apt purge -y --autoremove --allow-remove-essential kali-desktop-xfce
 
 echo ""
 echo "   ✅ Desktop environment switch complete"
+
+# Refresh DM_SERVICE now that GDM3 is active
+DM_SERVICE=$(basename "$(readlink -f /etc/systemd/system/display-manager.service 2>/dev/null)" .service 2>/dev/null || echo "unknown")
 
 # ──────────────────────────────────────────────────────────
 # 5. Install Third-Party Software

@@ -149,15 +149,81 @@ fi
 
 # Wait for SSH
 echo "   ⏳ Waiting for SSH to be available..."
+SSH_READY=false
 for i in $(seq 1 30); do
     if sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=3 \
         -o UserKnownHostsFile=/dev/null "$SSH_USER@$KALI_IP" "echo 'SSH ready'" &>/dev/null 2>&1; then
         echo "   ✅ SSH is ready"
+        SSH_READY=true
         break
     fi
-    
-    if [[ $i -eq 30 ]]; then
-        echo "❌ SSH not available after 60 seconds"
+    sleep 2
+done
+
+# Kali's first-boot initialization can undo pre-boot virt-customize changes (SSH enable,
+# host key generation). Re-apply fixes post-first-boot and retry, matching fix-kali-access.sh.
+if [[ "$SSH_READY" = false ]]; then
+    echo "   ⚠️  SSH not available — Kali first-boot likely reset SSH config."
+    echo "   🔧 Applying post-first-boot SSH fix..."
+
+    DISK_PATH=$(virsh domblklist "$VM_NAME" | grep -E '\.qcow2|\.img' | awk '{print $2}')
+
+    echo "   🛑 Stopping VM..."
+    virsh shutdown "$VM_NAME" || true
+    for i in $(seq 1 30); do
+        if ! virsh list --state-running | grep -q "$VM_NAME"; then break; fi
+        sleep 1
+    done
+    if virsh list --state-running | grep -q "$VM_NAME"; then
+        virsh destroy "$VM_NAME"
+        sleep 2
+    fi
+
+    echo "   🔧 Re-customizing disk after first boot..."
+    virt-customize -a "$DISK_PATH" \
+        --password "kali:password:kali" \
+        --run-command "systemctl enable ssh" \
+        --run-command "systemctl enable qemu-guest-agent" \
+        --selinux-relabel 2>&1 | grep -v "^libguestfs: trace:" || true
+
+    echo "   🚀 Restarting VM..."
+    virsh start "$VM_NAME"
+
+    echo "   ⏳ Waiting for IP after restart..."
+    KALI_IP=""
+    for i in $(seq 1 24); do
+        sleep 5
+        KALI_IP=$(ip neigh show | grep -i "$VM_MAC" | grep -oP '(\d+\.){3}\d+' | head -1 || true)
+        if [[ -z "$KALI_IP" ]]; then
+            KALI_IP=$(arp-scan --interface=br0 --localnet 2>/dev/null | grep -i "$VM_MAC" | awk '{print $1}' || true)
+        fi
+        if [[ -z "$KALI_IP" ]]; then
+            KALI_IP=$(virsh domifaddr "$VM_NAME" --source agent 2>/dev/null | grep -oP '(\d+\.){3}\d+' | head -1 || true)
+        fi
+        if [[ -n "$KALI_IP" ]]; then
+            echo "   ✅ IP: $KALI_IP"
+            break
+        fi
+    done
+
+    if [[ -z "$KALI_IP" ]]; then
+        echo "❌ Could not detect IP after fix attempt"
+        exit 1
+    fi
+
+    echo "   ⏳ Waiting for SSH after fix..."
+    for i in $(seq 1 30); do
+        if sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=3 \
+            -o UserKnownHostsFile=/dev/null "$SSH_USER@$KALI_IP" "echo 'SSH ready'" &>/dev/null 2>&1; then
+            echo "   ✅ SSH is ready"
+            SSH_READY=true
+            break
+        fi
+        sleep 2
+    done
+
+    if [[ "$SSH_READY" = false ]]; then
+        echo "❌ SSH still not available after fix attempt"
         echo ""
         echo "Troubleshooting:"
         echo "  1. Try: ssh kali@${KALI_IP}"
@@ -165,9 +231,7 @@ for i in $(seq 1 30); do
         echo "  3. Check: sudo virsh domifaddr $VM_NAME"
         exit 1
     fi
-    
-    sleep 2
-done
+fi
 
 # Copy and execute post-setup script
 echo "   📤 Copying configuration script to VM..."
