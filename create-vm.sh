@@ -4,13 +4,21 @@
 # Sets up a bridged QEMU/KVM Kali Linux VM with autostart.
 #
 # Usage:
-#   sudo ./setup-kali-vm.sh /path/to/kali.qcow2
+#   sudo ./setup-kali-vm.sh /path/to/kali.qcow2 [--graphics virtio|qxl]
 #
 # What it does:
 #   1. Installs QEMU/KVM + libvirt
 #   2. Creates a br0 bridge on eno1 (netplan + NetworkManager)
 #   3. Imports the Kali qcow2 as a VM on the bridge (SPICE)
 #   4. Enables autostart so the VM launches on boot
+#
+# Graphics modes:
+#   virtio (default) — virtio-gpu + virgl, SPICE local-only with GL passthrough.
+#                      Faster guest rendering → smoother NoMachine sessions and
+#                      buttery local virt-manager. Breaks GNOME's compositor.
+#   qxl              — plain QXL with network-listening SPICE. Slower (software
+#                      GL in the guest) but broadly compatible. Use this if you
+#                      run GNOME or need remote SPICE.
 #
 # Prerequisites:
 #   - Ubuntu with netplan + NetworkManager
@@ -31,6 +39,50 @@ VM_CPUS=8
 BRIDGE_NAME="br0"
 PHYS_IFACE="eno1"   # your wired NIC
 OS_VARIANT="debian12"
+GRAPHICS="virtio"   # virtio | qxl
+QCOW2_PATH=""
+
+# ──────────────────────────────────────────────────────────
+# Argument parsing
+# ──────────────────────────────────────────────────────────
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --graphics)
+            GRAPHICS="${2:-}"
+            shift 2
+            ;;
+        --graphics=*)
+            GRAPHICS="${1#--graphics=}"
+            shift
+            ;;
+        -h|--help)
+            sed -n '2,28p' "$0"
+            exit 0
+            ;;
+        -*)
+            echo "❌ Unknown flag: $1"
+            echo "Usage: sudo $0 /path/to/kali.qcow2 [--graphics virtio|qxl]"
+            exit 1
+            ;;
+        *)
+            if [[ -z "$QCOW2_PATH" ]]; then
+                QCOW2_PATH="$1"
+            else
+                echo "❌ Unexpected argument: $1"
+                exit 1
+            fi
+            shift
+            ;;
+    esac
+done
+
+case "$GRAPHICS" in
+    virtio|qxl) ;;
+    *)
+        echo "❌ Invalid --graphics value: '$GRAPHICS' (expected: virtio, qxl)"
+        exit 1
+        ;;
+esac
 
 # ──────────────────────────────────────────────────────────
 # Preflight checks
@@ -40,9 +92,8 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
-QCOW2_PATH="${1:-}"
 if [[ -z "$QCOW2_PATH" ]]; then
-    echo "Usage: sudo $0 /path/to/kali.qcow2"
+    echo "Usage: sudo $0 /path/to/kali.qcow2 [--graphics virtio|qxl]"
     exit 1
 fi
 
@@ -61,9 +112,10 @@ fi
 
 echo "============================================"
 echo "  Kali VM Setup"
-echo "  Image:  $QCOW2_PATH"
-echo "  VM:     $VM_NAME ($VM_CPUS vCPUs, ${VM_RAM}MB RAM)"
-echo "  Bridge: $BRIDGE_NAME on $PHYS_IFACE"
+echo "  Image:    $QCOW2_PATH"
+echo "  VM:       $VM_NAME ($VM_CPUS vCPUs, ${VM_RAM}MB RAM)"
+echo "  Bridge:   $BRIDGE_NAME on $PHYS_IFACE"
+echo "  Graphics: $GRAPHICS"
 echo "============================================"
 echo ""
 
@@ -148,7 +200,22 @@ fi
 # ──────────────────────────────────────────────────────────
 # Step 4: Import the Kali VM
 # ──────────────────────────────────────────────────────────
-echo "🖥️  Creating VM '$VM_NAME'..."
+echo "🖥️  Creating VM '$VM_NAME' (graphics: $GRAPHICS)..."
+
+# Resolve graphics mode → virt-install --graphics / --video flags.
+# virtio path enables virgl: the guest gets a real GPU pipeline through to the
+# host, so anything OpenGL (compositors, GTK, browsers, terminals) renders at
+# GPU speed — and NoMachine captures the smooth result. Requires listen=none
+# because GL frame passthrough is local-only (DMA-BUF).
+if [[ "$GRAPHICS" == "virtio" ]]; then
+    # listens0.* is array notation for the <listen> sub-element; listen.type is
+    # not a valid virt-install key. accel3d lives at model.acceleration.accel3d.
+    GRAPHICS_OPT="spice,listens0.type=none,gl.enable=yes,image.compression=off"
+    VIDEO_OPT="model.type=virtio,model.acceleration.accel3d=on"
+else
+    GRAPHICS_OPT="spice,listen=0.0.0.0"
+    VIDEO_OPT="model.type=qxl"
+fi
 
 virt-install \
     --name "$VM_NAME" \
@@ -158,8 +225,8 @@ virt-install \
     --import \
     --os-variant "$OS_VARIANT" \
     --network "bridge=${BRIDGE_NAME},model=virtio" \
-    --graphics spice,listen=0.0.0.0 \
-    --video model.type=qxl \
+    --graphics "$GRAPHICS_OPT" \
+    --video "$VIDEO_OPT" \
     --channel spicevmc,target.type=virtio,target.name=com.redhat.spice.0 \
     --channel unix,target.type=virtio,target.name=org.qemu.guest_agent.0 \
     --noautoconsole

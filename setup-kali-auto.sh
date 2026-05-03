@@ -4,13 +4,18 @@
 # Complete end-to-end Kali VM setup for headless operation
 #
 # Usage:
-#   sudo ./setup-kali-auto.sh /path/to/kali.qcow2 [--desktop xfce|gnome]
+#   sudo ./setup-kali-auto.sh /path/to/kali.qcow2 \
+#       [--desktop xfce|gnome] [--graphics auto|virtio|qxl]
 #
 # What it does:
 #   1. Runs setup-kali-vm.sh to create the VM
 #   2. Waits for VM to boot and SSH to be available
 #   3. Automatically runs kali-post-setup.sh inside the VM
 #   4. Reboots the VM to apply all changes
+#
+# Flag pairing:
+#   --graphics auto (default) picks virtio for XFCE, qxl for GNOME (since
+#   virgl + GNOME's mutter is the combo that breaks the compositor).
 #
 # This is perfect for headless servers where you want everything
 # configured without needing GUI access.
@@ -25,6 +30,11 @@ SSH_PASS="kali"
 #   xfce  — stock, fast over NoMachine (default)
 #   gnome — prettier locally, laggier over NoMachine
 DESKTOP="xfce"
+# Graphics mode for the VM (resolved below if "auto"):
+#   auto    — virtio for xfce, qxl for gnome
+#   virtio  — virtio-gpu + virgl (smoothest; breaks GNOME)
+#   qxl     — plain QXL + remote-listen SPICE (compatible)
+GRAPHICS="auto"
 QCOW2_PATH=""
 
 while [[ $# -gt 0 ]]; do
@@ -37,13 +47,21 @@ while [[ $# -gt 0 ]]; do
             DESKTOP="${1#--desktop=}"
             shift
             ;;
+        --graphics)
+            GRAPHICS="${2:-}"
+            shift 2
+            ;;
+        --graphics=*)
+            GRAPHICS="${1#--graphics=}"
+            shift
+            ;;
         -h|--help)
-            sed -n '2,16p' "$0"
+            sed -n '2,18p' "$0"
             exit 0
             ;;
         -*)
             echo "❌ Unknown flag: $1"
-            echo "Usage: sudo $0 /path/to/kali.qcow2 [--desktop xfce|gnome]"
+            echo "Usage: sudo $0 /path/to/kali.qcow2 [--desktop xfce|gnome] [--graphics auto|virtio|qxl]"
             exit 1
             ;;
         *)
@@ -65,6 +83,30 @@ case "$DESKTOP" in
         exit 1
         ;;
 esac
+
+case "$GRAPHICS" in
+    auto|virtio|qxl) ;;
+    *)
+        echo "❌ Invalid --graphics value: '$GRAPHICS' (expected: auto, virtio, qxl)"
+        exit 1
+        ;;
+esac
+
+# Resolve auto: virgl breaks GNOME's compositor, so pair gnome → qxl by default.
+if [[ "$GRAPHICS" == "auto" ]]; then
+    if [[ "$DESKTOP" == "gnome" ]]; then
+        GRAPHICS="qxl"
+        echo "ℹ️  --graphics auto + --desktop gnome → using qxl (virgl breaks mutter)"
+    else
+        GRAPHICS="virtio"
+    fi
+fi
+
+# Warn (but don't block) on the known-broken combination.
+if [[ "$DESKTOP" == "gnome" && "$GRAPHICS" == "virtio" ]]; then
+    echo "⚠️  Forcing --graphics virtio with --desktop gnome — expect compositor glitches."
+    echo "    Drop to --graphics qxl if GNOME starts misbehaving."
+fi
 
 # ──────────────────────────────────────────────────────────
 # Preflight
@@ -96,7 +138,8 @@ fi
 
 echo "============================================"
 echo "  Complete Kali VM Setup (Headless)"
-echo "  Desktop target: $DESKTOP"
+echo "  Desktop target:  $DESKTOP"
+echo "  Graphics:        $GRAPHICS"
 echo "============================================"
 echo ""
 
@@ -131,7 +174,7 @@ echo ""
 echo "📦 Step 2/5: Creating VM..."
 echo ""
 
-bash create-vm.sh "$QCOW2_PATH"
+bash create-vm.sh "$QCOW2_PATH" --graphics "$GRAPHICS"
 
 echo ""
 echo "   ✅ VM created successfully"
@@ -341,6 +384,7 @@ if [[ "$DESKTOP" == "gnome" ]]; then
 else
     echo "  Desktop:     XFCE with auto-login (stock, snappy over NoMachine)"
 fi
+echo "  Graphics:    $GRAPHICS"
 echo "  Installed:   Brave Browser, Sublime Text"
 echo ""
 echo "  VM Management:"

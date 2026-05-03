@@ -25,7 +25,7 @@ sudo ./setup-kali-auto.sh ~/vm/kali-linux-2025.4-qemu-amd64.qcow2 --desktop gnom
 1. **Pre-boots disk customization** with `virt-customize` — sets the `kali` user password to `kali`, enables SSH, and installs `qemu-guest-agent` so SSH and the host↔guest channel are live on first boot.
 2. **Creates the bridged VM** via [create-vm.sh](create-vm.sh) and adds a serial console for fallback access.
 3. **Waits for the VM's IP** (via guest agent / ARP) and SSHes in. If Kali's first-boot init wipes the SSH config, the script automatically shuts the VM down, re-applies `virt-customize`, and retries.
-4. **Runs [configure-kali.sh](configure-kali.sh) inside the VM** — auto-login, SSH on boot, NoMachine, the chosen desktop (XFCE by default, or GNOME with `--desktop gnome`), third-party apps.
+4. **Runs [configure-kali.sh](configure-kali.sh) inside the VM** — auto-login, SSH on boot, NoMachine, the chosen desktop (XFCE by default, or GNOME with `--desktop gnome`), third-party apps. Graphics defaults to virtio+virgl (see [Graphics Mode](#graphics-mode-virtio-virgl-vs-qxl)).
 5. **Reboots** and waits for the VM to come back online.
 
 > If your wired interface is **not** `eno1`, see [Configuring Network Interface](#configuring-network-interface) before running.
@@ -61,6 +61,54 @@ You can switch later by re-running `configure-kali.sh` with the other value — 
 
 ---
 
+### Graphics Mode: virtio (virgl) vs qxl
+
+Picked with `--graphics auto|virtio|qxl` on [setup-kali-auto.sh](setup-kali-auto.sh) / [create-vm.sh](create-vm.sh) (defaults to `auto`):
+
+- **`virtio`** — virtio-gpu with `accel3d` (virgl), SPICE local-only with GL passthrough. The guest gets a real GPU pipeline, so anything OpenGL — compositors, GTK animations, browser scrolling, terminal GPU rendering — runs at GPU speed instead of llvmpipe software fallback. NoMachine then captures the smooth result, so this is the best NoMachine experience too. Local virt-manager benefits even more (DMA-BUF passthrough, ~60fps).
+- **`qxl`** — plain QXL emulated GPU, SPICE listening on the network. No GL acceleration in the guest (everything OpenGL falls back to software). Slower but broadly compatible. Use this if you need remote SPICE, or with GNOME.
+- **`auto` (default)** — pairs `virtio` with `--desktop xfce` and `qxl` with `--desktop gnome`. Forcing `--graphics virtio --desktop gnome` is allowed but warned: virgl + GNOME's mutter is the combo that breaks the compositor (rendering glitches, occasional fallback to XFCE).
+
+Examples:
+
+```bash
+# Default: XFCE + virtio (best NoMachine + virt-manager perf)
+sudo ./setup-kali-auto.sh ~/vm/kali.qcow2
+
+# GNOME, auto-paired with qxl (avoids compositor breakage)
+sudo ./setup-kali-auto.sh ~/vm/kali.qcow2 --desktop gnome
+
+# Force qxl explicitly (e.g. you need SPICE listening on the network)
+sudo ./setup-kali-auto.sh ~/vm/kali.qcow2 --graphics qxl
+
+# Standalone create-vm.sh with explicit graphics
+sudo ./create-vm.sh ~/vm/kali.qcow2 --graphics qxl
+```
+
+Switching later means editing the VM with `virsh edit kali`. The relevant blocks for each mode:
+
+```xml
+<!-- virtio + virgl -->
+<graphics type='spice'>
+  <listen type='none'/>
+  <image compression='off'/>
+  <gl enable='yes'/>
+</graphics>
+<video>
+  <model type='virtio' heads='1' primary='yes'>
+    <acceleration accel3d='yes'/>
+  </model>
+</video>
+
+<!-- qxl + remote-listen SPICE -->
+<graphics type='spice' autoport='yes' listen='0.0.0.0'/>
+<video>
+  <model type='qxl' primary='yes'/>
+</video>
+```
+
+---
+
 ### Manual Setup (Step-by-Step)
 
 If you want more control or are setting things up incrementally:
@@ -72,7 +120,7 @@ cd ~/vm && 7z x ~/vm/kali-linux-2025.4-qemu-amd64.7z
 sudo bash ~/workspace/helper_scripts_oscp/create-vm.sh ~/vm/kali-linux-2025.4-qemu-amd64.qcow2
 ```
 
-[create-vm.sh](create-vm.sh) installs QEMU/KVM + libvirt, creates a `br0` bridge on `eno1` (netplan + NetworkManager), imports the qcow2 as a VM on the bridge with SPICE + serial + virtio guest-agent channel, and enables autostart.
+[create-vm.sh](create-vm.sh) installs QEMU/KVM + libvirt, creates a `br0` bridge on `eno1` (netplan + NetworkManager), imports the qcow2 as a VM on the bridge with the chosen graphics mode (virtio+virgl by default, see [Graphics Mode](#graphics-mode-virtio-virgl-vs-qxl)) plus a serial console and virtio guest-agent channel, and enables autostart.
 
 This script does **not** pre-customize the disk — if you go this route, plan to either:
 - Configure Kali interactively via SPICE/virt-manager, or
