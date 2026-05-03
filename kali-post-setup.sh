@@ -117,15 +117,41 @@ echo "   ✅ SSH enabled and started"
 echo "🖥️  Checking NoMachine installation..."
 
 # Check if NoMachine is already installed
-if dpkg -l | grep -q "^ii.*nomachine" && [[ -x /usr/NX/bin/nxserver ]]; then
+# Check both dpkg database and the actual binary
+if [[ -x /usr/NX/bin/nxserver ]] && dpkg -s nomachine &>/dev/null; then
     echo "   ℹ️  NoMachine is already installed"
     
-    # Verify it's running
-    if /usr/NX/bin/nxserver --status &>/dev/null; then
+    # Verify it's running using multiple checks
+    NX_RUNNING=false
+    
+    # Method 1: Check systemd service
+    if systemctl is-active --quiet nxserver 2>/dev/null; then
+        NX_RUNNING=true
+    fi
+    
+    # Method 2: Check for nxserver process
+    if pgrep -x "nxserver.bin" >/dev/null 2>&1; then
+        NX_RUNNING=true
+    fi
+    
+    # Method 3: Check if port 4000 is listening
+    if ss -tlnp 2>/dev/null | grep -q ":4000" || netstat -tlnp 2>/dev/null | grep -q ":4000"; then
+        NX_RUNNING=true
+    fi
+    
+    if [ "$NX_RUNNING" = true ]; then
         echo "   ✅ NoMachine is running"
     else
         echo "   ⚠️  NoMachine is installed but not running — attempting to start..."
         /usr/NX/bin/nxserver --start || true
+        sleep 2
+        
+        # Verify it started
+        if systemctl is-active --quiet nxserver 2>/dev/null || pgrep -x "nxserver.bin" >/dev/null 2>&1; then
+            echo "   ✅ NoMachine started successfully"
+        else
+            echo "   ❌ Failed to start NoMachine — check logs: /usr/NX/var/log/"
+        fi
     fi
 else
     echo "   📥 Installing NoMachine ${NOMACHINE_VERSION}..."
@@ -139,10 +165,30 @@ else
     dpkg -i "./$NOMACHINE_DEB" || apt install -f -y
     
     # NoMachine installs its own service (nxserver) automatically.
-    # Verify it's running.
-    /usr/NX/bin/nxserver --status
+    # Give it a moment to start
+    sleep 3
     
-    echo "   ✅ NoMachine installed and running"
+    # Verify it's running using multiple methods
+    echo "   🔍 Verifying NoMachine status..."
+    
+    if systemctl is-active --quiet nxserver 2>/dev/null; then
+        echo "   ✅ NoMachine service is active (systemctl)"
+    elif pgrep -x "nxserver.bin" >/dev/null 2>&1; then
+        echo "   ✅ NoMachine process is running (pgrep)"
+    elif ss -tlnp 2>/dev/null | grep -q ":4000"; then
+        echo "   ✅ NoMachine is listening on port 4000"
+    else
+        echo "   ⚠️  NoMachine may not be running — attempting manual start..."
+        /usr/NX/bin/nxserver --start || true
+        sleep 2
+    fi
+    
+    # Final verification
+    if systemctl is-active --quiet nxserver 2>/dev/null || pgrep -x "nxserver.bin" >/dev/null 2>&1; then
+        echo "   ✅ NoMachine installed and running"
+    else
+        echo "   ⚠️  NoMachine installed but status unclear — check: systemctl status nxserver"
+    fi
 fi
 
 # ──────────────────────────────────────────────────────────
